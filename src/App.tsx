@@ -674,7 +674,8 @@ const AdminDashboard = ({
         ...prev.filter(q => q.grade !== adminGrade),
         ...newQuestions
       ]);
-      setImportStatus({ message: `Đã nhập thành công ${newQuestions.length} câu hỏi mới cho Khối ${adminGrade} (Đã thay thế câu hỏi cũ)`, type: 'success' });
+      setHasUnsavedQuestions(true);
+      setImportStatus({ message: `Đã nhập thành công ${newQuestions.length} câu hỏi mới cho Khối ${adminGrade} (Đã thay thế câu hỏi cũ). Vui lòng nhấn "Lưu câu hỏi" để đồng bộ lên hệ thống.`, type: 'success' });
     };
     reader.readAsArrayBuffer(file);
   };
@@ -690,6 +691,7 @@ const AdminDashboard = ({
       examType: adminExamType
     } as Question;
     setQuestions(prev => [...prev, q]);
+    setHasUnsavedQuestions(true);
     
     // Sync to Firebase
     if (isAdmin) {
@@ -1247,12 +1249,14 @@ const AdminDashboard = ({
                           }}
                         />
                       )}
-                      <button 
-                        onClick={() => setEditingQuestionId(null)}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold"
-                      >
-                        Xong
-                      </button>
+                      <div className="flex justify-end pt-2">
+                        <button 
+                          onClick={() => setEditingQuestionId(null)}
+                          className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-blue-700 active:scale-95 transition-all shadow-md"
+                        >
+                          <Save size={18} /> Lưu & Đóng
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -2794,8 +2798,28 @@ export default function App() {
   const [hasUnsavedQuestions, setHasUnsavedQuestions] = useState(false);
   const [hasUnsavedSettings, setHasUnsavedSettings] = useState(false);
 
+  const lastEditedIdRef = useRef<string | null>(null);
+
   // Debounced Question Auto-save
   useEffect(() => {
+    // If an editor was just closed, sync the LAST edited question immediately if it had changes
+    if (!editingQuestionId && lastEditedIdRef.current && isAdmin && hasUnsavedQuestions) {
+      const qToSave = questions.find(q => q.id === lastEditedIdRef.current);
+      if (qToSave) {
+        setIsSyncing(true);
+        setDoc(doc(db, "questions", qToSave.id), qToSave)
+          .then(() => {
+            setIsSyncing(false);
+            setHasUnsavedQuestions(false);
+          })
+          .catch(err => {
+            console.error("Final sync question failed:", err);
+            setIsSyncing(false);
+          });
+      }
+    }
+
+    // Normal debounced auto-save while editing
     if (editingQuestionId && isAdmin && questions.some(q => q.id === editingQuestionId)) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       
@@ -2813,12 +2837,15 @@ export default function App() {
               setIsSyncing(false);
             });
         }
-      }, 2000); // 2 second debounce
+      }, 1500); // 1.5 second debounce
     }
+
+    lastEditedIdRef.current = editingQuestionId;
+
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [questions, editingQuestionId, isAdmin]);
+  }, [questions, editingQuestionId, isAdmin, hasUnsavedQuestions]);
 
   // Auth Listener
   useEffect(() => {
