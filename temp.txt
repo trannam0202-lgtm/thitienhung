@@ -1,0 +1,7 @@
+296:                password: "123",
+356:      password: "123",
+692:                                  setStudents(prev => prev.map(st => st.id === s.id ? { ...st, password: "123", hasChangedPassword: false } : st));
+694:                                  setImportStatus({ message: `Đã reset mật khẩu cho ${s.name} về 123`, type: 'success' });
+712:                              title="Reset mật khẩu về 123"
+2430:  const [adminPassword, setAdminPassword] = useState("vannam123");
+2706:      if (!student.hasChangedPassword && pass === "123") {

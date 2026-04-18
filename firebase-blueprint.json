@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Student profile information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "birthday": { "type": "string" },
+        "gender": { "type": "string" },
+        "grade": { "type": "number" },
+        "className": { "type": "string" },
+        "password": { "type": "string" },
+        "hasChangedPassword": { "type": "boolean" },
+        "schoolYear": { "type": "string" }
+      },
+      "required": ["id", "name", "grade", "className", "password", "schoolYear"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Exam question",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "grade": { "type": "number" },
+        "subject": { "type": "string" },
+        "type": { "type": "string" },
+        "level": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "imageWidth": { "type": "number" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "correctAnswer": { "type": "any" },
+        "subQuestions": { "type": "array" },
+        "schoolYear": { "type": "string" },
+        "examType": { "type": "string" }
+      },
+      "required": ["id", "grade", "subject", "type", "content", "schoolYear", "examType"]
+    },
+    "ScoreRecord": {
+      "title": "ScoreRecord",
+      "description": "Student exam result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "className": { "type": "string" },
+        "grade": { "type": "number" },
+        "subject": { "type": "string" },
+        "score": { "type": "number" },
+        "part1Score": { "type": "number" },
+        "part2Score": { "type": "number" },
+        "part3Score": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "schoolYear": { "type": "string" },
+        "examType": { "type": "string" }
+      },
+      "required": ["id", "studentId", "score", "timestamp"]
+    },
+    "ExamSettings": {
+      "title": "ExamSettings",
+      "description": "Configuration for exams",
+      "type": "object",
+      "properties": {
+        "grade": { "type": "number" },
+        "subject": { "type": "string" },
+        "schoolYear": { "type": "string" },
+        "examType": { "type": "string" },
+        "date": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["grade", "subject", "schoolYear", "examType", "isActive"]
+    },
+    "AdminConfig": {
+      "title": "AdminConfig",
+      "description": "Global admin settings",
+      "type": "object",
+      "properties": {
+        "password": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of students"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Collection of exam questions"
+    },
+    "/scores/{scoreId}": {
+      "schema": "ScoreRecord",
+      "description": "Collection of exam results"
+    },
+    "/settings/{settingId}": {
+      "schema": "ExamSettings",
+      "description": "Collection of exam configurations"
+    },
+    "/admin/config": {
+      "schema": "AdminConfig",
+      "description": "Global admin configuration"
+    }
+  }
+}

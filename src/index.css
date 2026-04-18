@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Rich Text Content Styles */
+.q-content-html img, .ql-editor img {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+}
+
+.ql-editor {
+  min-height: 100px;
+  font-size: 16px;
+}
+
+.katex-display {
+  margin: 1em 0;
+}
+
+/* Ensure KaTeX formulas are visible and properly formatted */
+.katex {
+  font-size: 1.1em;
+  line-height: 1.2;
+  text-rendering: auto;
+}
+
+.katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.ql-editor .katex {
+  cursor: pointer;
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
