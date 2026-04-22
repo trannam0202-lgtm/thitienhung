@@ -628,40 +628,84 @@ const AdminDashboard = ({
   };
 
   const exportScores = () => {
+    const formatDate = (ts: number) => {
+      if (!ts) return "---";
+      const d = new Date(ts);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      const s = String(d.getSeconds()).padStart(2, '0');
+      return `${dd}/${mm}/${yyyy} ${h}:${m}:${s}`;
+    };
+
+    const getFullExamType = (type: string) => {
+      if (type === "Giữa kỳ 1") return "Kiểm tra đánh giá giữa kỳ 1";
+      if (type === "Cuối kỳ 1") return "Kiểm tra đánh giá cuối kỳ 1";
+      if (type === "Giữa kỳ 2") return "Kiểm tra đánh giá giữa kỳ 2";
+      if (type === "Cuối kỳ 2") return "Kiểm tra đánh giá cuối kỳ 2";
+      return type;
+    };
+
     const filteredScores = scores.filter(s => 
       s.className === adminClass && 
       s.schoolYear === adminSchoolYear && 
       s.examType === adminExamType &&
       s.subject === adminSubject
     );
+    
     const tableData = filteredScores.map((s, i) => ({
       "STT": i + 1,
       "Họ và tên học sinh": s.studentName,
       "Lớp": s.className,
       "Năm học": s.schoolYear,
-      "Kỳ thi": s.examType,
-      "Môn học": s.subject,
-      "Điểm Nhiều lựa chọn": s.part1Score || 0,
-      "Điểm Đúng/Sai": s.part2Score || 0,
-      "Điểm Trả lời ngắn": s.part3Score || 0,
-      "Tổng điểm": s.score
+      "Kỳ thi": getFullExamType(s.examType),
+      "Trắc nghiệm": s.part1Score || 0,
+      "Đúng/Sai": s.part2Score || 0,
+      "Trả lời ngắn": s.part3Score || 0,
+      "Tổng điểm": s.score,
+      "Thời gian nộp": formatDate(s.timestamp)
     }));
 
     const ws = XLSX.utils.json_to_sheet([]);
     XLSX.utils.sheet_add_aoa(ws, [
       ["Trường THCS Tiến Hưng", "", "", "KẾT QUẢ KIỂM TRA ĐÁNH GIÁ"],
       ["", "", "", `Môn: ${adminSubject}`],
-      ["", "", "", `Năm học: ${adminSchoolYear} - Kỳ thi: ${adminExamType}`],
+      ["", "", "", `Năm học: ${adminSchoolYear} . Kỳ: ${getFullExamType(adminExamType)}`],
       ["", "", "", `Lớp: ${adminClass}`],
       [],
-      ["STT", "Họ và tên học sinh", "Lớp", "Năm học", "Kỳ thi", "Môn học", "Điểm Nhiều lựa chọn", "Điểm Đúng/Sai", "Điểm Trả lời ngắn", "Tổng điểm"]
+      ["STT", "Họ và tên học sinh", "Lớp", "Năm học", "Kỳ thi", "Trắc nghiệm", "Đúng/Sai", "Trả lời ngắn", "Tổng điểm", "Thời gian nộp"]
     ], { origin: "A1" });
 
-    XLSX.utils.sheet_add_json(ws, tableData, { origin: "A6", skipHeader: true });
+    XLSX.utils.sheet_add_json(ws, tableData, { origin: "A7", skipHeader: true });
 
-    ws['!cols'] = [
-      { wch: 5 }, { wch: 30 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 12 }
-    ];
+    // Calculate auto-fit column widths
+    const headerRow = ["STT", "Họ và tên học sinh", "Lớp", "Năm học", "Kỳ thi", "Trắc nghiệm", "Đúng/Sai", "Trả lời ngắn", "Tổng điểm", "Thời gian nộp"];
+    const colWidths = headerRow.map(h => ({ wch: h.length + 5 })); 
+
+    tableData.forEach(row => {
+      const values = [
+        row["STT"],
+        row["Họ và tên học sinh"],
+        row["Lớp"],
+        row["Năm học"],
+        row["Kỳ thi"],
+        row["Trắc nghiệm"],
+        row["Đúng/Sai"],
+        row["Trả lời ngắn"],
+        row["Tổng điểm"],
+        row["Thời gian nộp"]
+      ];
+      values.forEach((val, i) => {
+        const sVal = val?.toString() || "";
+        if (sVal.length + 2 > colWidths[i].wch) {
+          colWidths[i].wch = sVal.length + 2;
+        }
+      });
+    });
+
+    ws['!cols'] = colWidths;
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "KetQua");
