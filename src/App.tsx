@@ -15,6 +15,7 @@ import {
   CheckCircle2, 
   AlertCircle,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   Plus,
   Trash2,
@@ -57,9 +58,86 @@ import {
 import { cn } from "./lib/utils";
 import ReactQuill, { Quill } from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import katex from 'katex';
+import katex from "katex";
 import 'katex/dist/katex.min.css';
 import ImageResize from 'quill-image-resize-module-react';
+
+// Helper to render LaTeX in HTML strings
+const renderMathInHtml = (html?: string) => {
+  if (!html) return "";
+  
+  // 1. Process Quill-style formulas: <span class="ql-formula" data-value="...">...</span>
+  // Using a more robust regex that handles both attribute orders and internal content
+  let processed = html;
+  
+  // Find all matches for spans that might be ql-formula
+  const qlFormulaRegex = /<span[^>]+class="ql-formula"[^>]+data-value="([^"]+)"[^>]*>.*?<\/span>/g;
+  processed = processed.replace(qlFormulaRegex, (_, formula) => {
+    try {
+      return katex.renderToString(formula, { throwOnError: false });
+    } catch (e) {
+      return formula;
+    }
+  });
+
+  // Second pass for another attribute order
+  const qlFormulaRegexRev = /<span[^>]+data-value="([^"]+)"[^>]+class="ql-formula"[^>]*>.*?<\/span>/g;
+  processed = processed.replace(qlFormulaRegexRev, (_, formula) => {
+    try {
+      return katex.renderToString(formula, { throwOnError: false });
+    } catch (e) {
+      return formula;
+    }
+  });
+
+  // 2. Process manual formats
+  // Double $$ for display mode
+  processed = processed.replace(/\$\$(.+?)\$\$/g, (_, formula) => {
+    try {
+      return katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false, trust: true });
+    } catch (e) {
+      return formula;
+    }
+  });
+  
+  // Single $ for inline mode
+  processed = processed.replace(/\$(.+?)\$/g, (_, formula) => {
+    // Avoid processing if it contains HTML or is empty
+    if (formula && formula.length > 0 && !formula.includes('<')) {
+      try {
+        return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false, trust: true });
+      } catch (e) {
+        return formula;
+      }
+    }
+    return `$${formula}$`;
+  });
+
+  // Handle LaTeX-style brackets \( \) and \[ \]
+  processed = processed.replace(/\\\[(.+?)\\\]/g, (_, formula) => {
+    try {
+      return katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false, trust: true });
+    } catch (e) {
+      return formula;
+    }
+  });
+
+  processed = processed.replace(/\\\((.+?)\\\)/g, (_, formula) => {
+    try {
+      return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false, trust: true });
+    } catch (e) {
+      return formula;
+    }
+  });
+
+  return processed;
+};
+
+// Component to handle rich text with math
+const RichTextRenderer = ({ html, className }: { html?: string; className?: string }) => {
+  const rendered = useMemo(() => renderMathInHtml(html), [html]);
+  return <div className={className} dangerouslySetInnerHTML={{ __html: rendered }} />;
+};
 
 if (typeof window !== 'undefined') {
   (window as any).katex = katex;
@@ -200,6 +278,7 @@ interface AdminDashboardProps {
   setIsSyncing: (val: boolean) => void;
   editingQuestionId: string | null;
   setEditingQuestionId: (id: string | null) => void;
+  saveAllQuestions?: () => void;
 }
 
 const AdminDashboard = ({
@@ -237,7 +316,8 @@ const AdminDashboard = ({
   isSyncing,
   setIsSyncing,
   editingQuestionId,
-  setEditingQuestionId
+  setEditingQuestionId,
+  saveAllQuestions
 }: AdminDashboardProps) => {
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
@@ -551,7 +631,8 @@ const AdminDashboard = ({
     const filteredScores = scores.filter(s => 
       s.className === adminClass && 
       s.schoolYear === adminSchoolYear && 
-      s.examType === adminExamType
+      s.examType === adminExamType &&
+      s.subject === adminSubject
     );
     const tableData = filteredScores.map((s, i) => ({
       "STT": i + 1,
@@ -559,6 +640,7 @@ const AdminDashboard = ({
       "Lớp": s.className,
       "Năm học": s.schoolYear,
       "Kỳ thi": s.examType,
+      "Môn học": s.subject,
       "Điểm Nhiều lựa chọn": s.part1Score || 0,
       "Điểm Đúng/Sai": s.part2Score || 0,
       "Điểm Trả lời ngắn": s.part3Score || 0,
@@ -567,17 +649,18 @@ const AdminDashboard = ({
 
     const ws = XLSX.utils.json_to_sheet([]);
     XLSX.utils.sheet_add_aoa(ws, [
-      ["Trường THCS Tiến Hưng", "", "", "KẾT QUẢ KIỂM TRA ĐÁNH GIÁ MÔN ..."],
+      ["Trường THCS Tiến Hưng", "", "", "KẾT QUẢ KIỂM TRA ĐÁNH GIÁ"],
+      ["", "", "", `Môn: ${adminSubject}`],
       ["", "", "", `Năm học: ${adminSchoolYear} - Kỳ thi: ${adminExamType}`],
       ["", "", "", `Lớp: ${adminClass}`],
       [],
-      ["STT", "Họ và tên học sinh", "Lớp", "Năm học", "Kỳ thi", "Điểm Nhiều lựa chọn", "Điểm Đúng/Sai", "Điểm Trả lời ngắn", "Tổng điểm"]
+      ["STT", "Họ và tên học sinh", "Lớp", "Năm học", "Kỳ thi", "Môn học", "Điểm Nhiều lựa chọn", "Điểm Đúng/Sai", "Điểm Trả lời ngắn", "Tổng điểm"]
     ], { origin: "A1" });
 
     XLSX.utils.sheet_add_json(ws, tableData, { origin: "A6", skipHeader: true });
 
     ws['!cols'] = [
-      { wch: 5 }, { wch: 30 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 12 }
+      { wch: 5 }, { wch: 30 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 12 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -1007,6 +1090,14 @@ const AdminDashboard = ({
                     <Save size={18} /> Lưu câu hỏi Khối {adminGrade} - {adminSubject}
                   </button>
                 )}
+                {hasUnsavedQuestions && saveAllQuestions && (
+                  <button 
+                    onClick={saveAllQuestions}
+                    className="flex items-center gap-2 bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600 transition-all font-bold active:scale-95 shadow-lg animate-pulse"
+                  >
+                    <Save size={18} /> Lưu tất cả câu hỏi ngay
+                  </button>
+                )}
                 {!showDeleteAllQuestionsConfirm ? (
                   <button 
                     onClick={() => setShowDeleteAllQuestionsConfirm(true)}
@@ -1260,9 +1351,9 @@ const AdminDashboard = ({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div 
+                      <RichTextRenderer 
+                        html={q.content} 
                         className="font-bold text-gray-800 text-lg q-content-html"
-                        dangerouslySetInnerHTML={{ __html: q.content }}
                       />
                       {q.imageUrl && (
                         <div className="flex justify-center my-4">
@@ -1286,7 +1377,7 @@ const AdminDashboard = ({
                               q.correctAnswer === optIdx ? "bg-green-50 border-green-200 text-green-700 font-bold shadow-sm" : "border-gray-100 text-gray-600"
                             )}>
                               <span className="shrink-0">{String.fromCharCode(65 + optIdx)}.</span>
-                              <div dangerouslySetInnerHTML={{ __html: opt }} className="flex-grow overflow-hidden" />
+                              <RichTextRenderer html={opt} className="flex-grow overflow-hidden" />
                             </div>
                           ))}
                         </div>
@@ -1296,7 +1387,7 @@ const AdminDashboard = ({
                           {q.subQuestions.map((sub, subIdx) => (
                             <div key={subIdx} className="text-sm text-gray-600 flex gap-2 items-center">
                               <span className="shrink-0">{String.fromCharCode(97 + subIdx)}.</span>
-                              <div dangerouslySetInnerHTML={{ __html: sub.text }} className="flex-grow" />
+                              <RichTextRenderer html={sub.text} className="flex-grow" />
                               <span className={sub.correctAnswer ? "text-green-600 font-bold shrink-0" : "text-red-600 font-bold shrink-0"}>
                                 - {sub.correctAnswer ? "Đúng" : "Sai"}
                               </span>
@@ -2372,6 +2463,7 @@ const ExamView = ({
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
+  const [detailedScore, setDetailedScore] = useState({ part1: 0, part2: 0, part3: 0 });
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   
@@ -2443,6 +2535,7 @@ const ExamView = ({
 
     totalScore = part1Score + part2Score + part3Score;
     setScore(totalScore);
+    setDetailedScore({ part1: part1Score, part2: part2Score, part3: part3Score });
     setIsSubmitted(true);
     
     const record: ScoreRecord = {
@@ -2469,42 +2562,72 @@ const ExamView = ({
 
   if (!isStarted) {
     return (
-      <div className="max-w-2xl mx-auto mt-12 p-10 bg-white rounded-3xl shadow-2xl text-center border border-blue-50">
-        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Clock size={40} className="text-blue-600" />
+      <div className="flex-grow flex items-center justify-center p-4 bg-slate-50">
+        <div className="w-full max-w-2xl p-8 md:p-12 bg-white rounded-[2.5rem] shadow-2xl text-center border border-blue-50 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400"></div>
+          <div className="w-24 h-24 bg-blue-100 rounded-3xl flex items-center justify-center mx-auto mb-8 rotate-3 shadow-inner">
+            <Clock size={48} className="text-blue-600 -rotate-3" />
+          </div>
+          <h2 className="text-3xl md:text-4xl font-black text-gray-800 mb-6 tracking-tight">Sẵn sàng thi chưa?</h2>
+          <div className="text-left bg-blue-50/50 p-6 md:p-8 rounded-[2rem] mb-10 space-y-4 border border-blue-100/50">
+            <p className="flex items-center gap-3 text-gray-700 font-bold text-sm md:text-base"><CheckCircle2 className="text-blue-600" size={20} /> Thời gian làm bài: 45 phút</p>
+            <p className="flex items-center gap-3 text-gray-700 font-bold text-sm md:text-base"><CheckCircle2 className="text-blue-600" size={20} /> Phần 1: 16 câu trắc nghiệm (4 điểm)</p>
+            <p className="flex items-center gap-3 text-gray-700 font-bold text-sm md:text-base"><CheckCircle2 className="text-blue-600" size={20} /> Phần 2: 4 câu Đúng/Sai (4 điểm)</p>
+            <p className="flex items-center gap-3 text-gray-700 font-bold text-sm md:text-base"><CheckCircle2 className="text-blue-600" size={20} /> Phần 3: 4 câu trả lời ngắn (2 điểm)</p>
+          </div>
+          <button
+            onClick={() => setIsStarted(true)}
+            className="w-full sm:w-auto px-16 py-5 bg-blue-600 text-white rounded-2xl text-xl font-black hover:bg-blue-700 transform hover:scale-105 transition-all shadow-xl hover:shadow-blue-200 active:scale-95"
+          >
+            Bắt đầu thi ngay
+          </button>
+          <p className="mt-6 text-gray-400 text-xs font-medium">Chúc bạn làm bài thi đạt kết quả tốt nhất!</p>
         </div>
-        <h2 className="text-3xl font-bold text-gray-800 mb-4">Sẵn sàng thi chưa?</h2>
-        <div className="text-left bg-gray-50 p-6 rounded-2xl mb-8 space-y-3">
-          <p className="flex items-center gap-2 text-gray-700 font-medium"><CheckCircle2 className="text-green-500" size={18} /> Thời gian làm bài: 45 phút</p>
-          <p className="flex items-center gap-2 text-gray-700 font-medium"><CheckCircle2 className="text-green-500" size={18} /> Phần 1: 16 câu trắc nghiệm (4 điểm)</p>
-          <p className="flex items-center gap-2 text-gray-700 font-medium"><CheckCircle2 className="text-green-500" size={18} /> Phần 2: 4 câu Đúng/Sai (4 điểm)</p>
-          <p className="flex items-center gap-2 text-gray-700 font-medium"><CheckCircle2 className="text-green-500" size={18} /> Phần 3: 4 câu trả lời ngắn (2 điểm)</p>
-        </div>
-        <button
-          onClick={() => setIsStarted(true)}
-          className="px-12 py-4 bg-blue-600 text-white rounded-full text-xl font-bold hover:bg-blue-700 transform hover:scale-105 transition-all shadow-xl active:scale-95 active:shadow-inner"
-        >
-          Bắt đầu thi
-        </button>
       </div>
     );
   }
 
   if (isSubmitted) {
     return (
-      <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-2xl text-center">
-        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CheckCircle2 size={56} className="text-green-600" />
+      <div className="flex-grow flex items-center justify-center p-4 bg-slate-50">
+        <div className="w-full max-w-2xl p-8 md:p-14 bg-white rounded-[2.5rem] shadow-2xl text-center relative overflow-hidden border border-green-50">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 via-green-600 to-green-400"></div>
+          <div className="w-28 h-28 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
+            <CheckCircle2 size={64} className="text-green-600" />
+          </div>
+          <h2 className="text-3xl md:text-4xl font-black text-gray-800 mb-2 tracking-tight">Hoàn thành bài thi!</h2>
+          <p className="text-gray-500 mb-10 font-medium">Kết quả của bạn đã được ghi nhận thành công.</p>
+          
+          <div className="relative inline-block mb-12">
+            <div className="absolute inset-0 bg-blue-600 blur-3xl opacity-10"></div>
+            <div className="relative text-7xl md:text-8xl font-black text-blue-600 drop-shadow-sm">
+              {score.toFixed(2)}
+              <span className="text-2xl text-gray-300 ml-2">/ 10</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 mb-10 text-xs md:text-sm">
+             <div className="p-4 bg-gray-50 rounded-2xl">
+               <p className="text-gray-400 font-bold mb-1 uppercase tracking-widest text-[10px]">Phần 1</p>
+               <p className="text-gray-800 font-black">{detailedScore.part1.toFixed(2)}đ</p>
+             </div>
+             <div className="p-4 bg-gray-50 rounded-2xl">
+               <p className="text-gray-400 font-bold mb-1 uppercase tracking-widest text-[10px]">Phần 2</p>
+               <p className="text-gray-800 font-black">{detailedScore.part2.toFixed(2)}đ</p>
+             </div>
+             <div className="p-4 bg-gray-50 rounded-2xl">
+               <p className="text-gray-400 font-bold mb-1 uppercase tracking-widest text-[10px]">Phần 3</p>
+               <p className="text-gray-800 font-black">{detailedScore.part3.toFixed(2)}đ</p>
+             </div>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="w-full px-8 py-4 bg-gray-900 text-white rounded-2xl font-black hover:bg-black transition-all active:scale-95 shadow-lg"
+          >
+            Đăng xuất khỏi hệ thống
+          </button>
         </div>
-        <h2 className="text-3xl font-bold text-gray-800 mb-2">Hoàn thành bài thi!</h2>
-        <p className="text-gray-500 mb-8">Kết quả của bạn đã được lưu vào hệ thống.</p>
-        <div className="text-6xl font-black text-blue-600 mb-8">{score.toFixed(2)} / 10</div>
-        <button
-          onClick={handleLogout}
-          className="px-8 py-3 bg-gray-800 text-white rounded-lg font-bold hover:bg-gray-900 active:scale-95 active:shadow-inner"
-        >
-          Đăng xuất
-        </button>
       </div>
     );
   }
@@ -2519,51 +2642,62 @@ const ExamView = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-8 pt-24 md:pt-8">
-      <div className="fixed top-4 right-4 z-50 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-blue-100 flex flex-col items-end gap-2 min-w-[200px]">
-        <div className={cn(
-          "flex items-center gap-2 px-4 py-1.5 rounded-full font-mono text-lg font-bold",
-          timeLeft < 300 ? "bg-red-100 text-red-600 animate-pulse" : "bg-blue-100 text-blue-600"
-        )}>
-          <Clock size={18} /> {formatTime(timeLeft)}
+    <div className="fixed inset-0 bg-slate-50 flex flex-col z-[100] overflow-hidden">
+      {/* Top Header: Timer, Student Info and Submit */}
+      <header className="flex-shrink-0 bg-white border-b border-gray-200 px-4 md:px-8 py-3 flex justify-between items-center shadow-sm relative z-20">
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex w-10 h-10 bg-blue-600 rounded-xl items-center justify-center text-white shadow-lg">
+            <GraduationCap size={24} />
+          </div>
+          <div>
+            <h1 className="text-sm md:text-base font-bold text-gray-800 leading-tight">Thi Trực Tuyến</h1>
+            <p className="text-[10px] md:text-xs text-gray-500 font-medium">THCS Tiến Hưng</p>
+          </div>
         </div>
 
-        <div className="text-right">
-          <p className="font-bold text-gray-800 leading-tight">{currentStudent?.name}</p>
-          <p className="text-xs text-gray-500 font-medium">Lớp {currentStudent?.className}</p>
-        </div>
+        <div className="flex items-center gap-4 md:gap-8">
+          <div className={cn(
+            "flex items-center gap-2 px-4 py-1.5 rounded-full font-mono text-base md:text-xl font-bold",
+            timeLeft < 300 ? "bg-red-100 text-red-600 animate-pulse" : "bg-blue-100 text-blue-600"
+          )}>
+            <Clock size={20} className={timeLeft < 300 ? "animate-spin" : ""} /> {formatTime(timeLeft)}
+          </div>
 
-        <div className="mt-1 w-full flex justify-end">
+          <div className="hidden md:block text-right">
+            <p className="font-bold text-gray-800 leading-tight">{currentStudent?.name}</p>
+            <p className="text-xs text-gray-500 font-medium tracking-wide Uppercase">Lớp {currentStudent?.className}</p>
+          </div>
+
           {!showSubmitConfirm ? (
             <button
               onClick={() => setShowSubmitConfirm(true)}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 active:scale-95 transition-all text-sm shadow-md"
+              className="bg-green-600 text-white px-4 md:px-6 py-2 rounded-xl font-bold hover:bg-green-700 active:scale-95 transition-all text-sm md:text-base shadow-md hover:shadow-lg"
             >
               Nộp bài
             </button>
           ) : (
-            <div className="flex items-center gap-2 bg-green-50 p-1 rounded-lg border border-green-100">
-              <span className="text-[10px] font-bold text-green-700 px-1">Nộp?</span>
+            <div className="flex items-center gap-2 bg-green-50 p-1 px-2 rounded-xl border border-green-200">
+              <span className="text-xs font-bold text-green-700">Nộp?</span>
               <button
                 onClick={handleSubmit}
-                className="bg-green-600 text-white px-3 py-1 rounded font-bold hover:bg-green-700 text-xs active:scale-95"
+                className="bg-green-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-green-700 text-xs active:scale-95"
               >
                 Có
               </button>
               <button
                 onClick={() => setShowSubmitConfirm(false)}
-                className="bg-white text-gray-500 px-3 py-1 rounded font-bold border border-gray-200 text-xs active:scale-95"
+                className="bg-white text-gray-500 px-3 py-1 rounded-lg font-bold border border-gray-200 text-xs active:scale-95"
               >
                 Không
               </button>
             </div>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Question Navigation */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-6 overflow-x-auto custom-scrollbar">
-        <div className="flex gap-2 min-w-max md:min-w-0 md:flex-wrap md:justify-center pb-2 md:pb-0">
+      {/* Question Navigation: Compact bar */}
+      <nav className="flex-shrink-0 bg-white border-b border-gray-100 px-2 py-2 overflow-x-auto custom-scrollbar shadow-sm z-10 flex items-center">
+        <div className="flex gap-1.5 px-2">
           {sessionQuestions.map((q, idx) => {
             const isAnswered = q.type === QuestionType.TRUE_FALSE 
               ? q.subQuestions.every((_: any, sIdx: number) => answers[`${q.id}-${sIdx}`] !== undefined)
@@ -2574,9 +2708,9 @@ const ExamView = ({
                 key={q.id}
                 onClick={() => setCurrentQuestionIdx(idx)}
                 className={cn(
-                  "w-10 h-10 rounded-lg font-bold transition-all active:scale-90",
-                  currentQuestionIdx === idx ? "bg-blue-600 text-white shadow-md" : 
-                  isAnswered ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  "w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-lg font-bold text-xs md:text-sm transition-all active:scale-90",
+                  currentQuestionIdx === idx ? "bg-blue-600 text-white shadow-md scale-110 z-2" : 
+                  isAnswered ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-gray-50 text-gray-400 hover:bg-gray-100"
                 )}
               >
                 {idx + 1}
@@ -2584,172 +2718,180 @@ const ExamView = ({
             );
           })}
         </div>
-      </div>
+      </nav>
 
-      <AnimatePresence mode="wait">
-        <motion.div 
-          key={currentQuestionIdx}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.2 }}
-          className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-gray-100 min-h-[400px] flex flex-col"
-        >
-          <div className="mb-6">
-            <span className="bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-xs md:text-sm font-bold uppercase tracking-wider">
-              {getPartTitle(currentQ.type)}
-            </span>
-            <div className="text-xl md:text-2xl font-bold text-gray-800 mt-4 leading-tight flex gap-2">
-              <span className="shrink-0">Câu {currentQuestionIdx + 1}:</span>
-              <div dangerouslySetInnerHTML={{ __html: currentQ.content }} className="flex-grow" />
-            </div>
-            {currentQ.imageUrl && (
-              <div className="mt-6 flex justify-center">
-                <img 
-                  src={currentQ.imageUrl} 
-                  alt="Question illustration" 
-                  className="rounded-xl shadow-md max-w-full h-auto object-contain border border-gray-100"
-                  style={{ 
-                    width: currentQ.imageWidth ? `${currentQ.imageWidth}px` : 'auto',
-                    maxHeight: '350px'
-                  }}
-                  referrerPolicy="no-referrer"
-                />
+      {/* Main Content: Question and Answers */}
+      <main className="flex-grow overflow-y-auto bg-slate-50 relative h-0">
+        <div className="w-full max-w-6xl mx-auto p-3 md:p-6 lg:p-10 min-h-full flex flex-col">
+          <AnimatePresence mode="wait">
+            <motion.div 
+              key={currentQuestionIdx}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white p-6 md:p-12 rounded-[2.5rem] shadow-2xl border border-white flex flex-col flex-grow mb-4 last:mb-0"
+            >
+              <div className="mb-4 flex-shrink-0">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="bg-[#EBF5FF] text-[#1E40AF] px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">
+                    {getPartTitle(currentQ.type)}
+                  </span>
+                </div>
+                
+                <div className="text-[15px] font-black text-gray-900 leading-tight flex gap-4">
+                  <span className="shrink-0 text-slate-400">Câu {currentQuestionIdx + 1}.</span>
+                  <RichTextRenderer html={currentQ.content} className="flex-grow break-words" />
+                </div>
+
+                {currentQ.imageUrl && (
+                  <div className="mt-8 flex justify-center bg-gray-50 rounded-3xl p-4 md:p-8 border border-gray-100 shadow-inner">
+                    <img 
+                      src={currentQ.imageUrl} 
+                      alt="Question illustration" 
+                      className="rounded-2xl shadow-xl max-w-full h-auto object-contain border-4 border-white"
+                      style={{ 
+                        width: currentQ.imageWidth ? `${currentQ.imageWidth}px` : 'auto',
+                        maxHeight: '40vh'
+                      }}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="flex-grow">
-            {currentQ.type === QuestionType.MULTIPLE_CHOICE && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                {currentQ.shuffledOptions.map((opt: any, i: number) => (
-                  <button
-                    key={i}
-                    onClick={() => setAnswers(prev => ({ ...prev, [currentQ.id]: opt.originalIdx }))}
-                    className={cn(
-                      "flex items-center gap-3 md:gap-4 text-left p-4 md:p-5 rounded-2xl border-2 transition-all active:scale-[0.98] group",
-                      answers[currentQ.id] === opt.originalIdx 
-                        ? "border-blue-500 bg-blue-50 text-blue-700 shadow-inner" 
-                        : "border-gray-100 hover:border-blue-200 hover:bg-gray-50"
-                    )}
-                  >
-                    <div className={cn(
-                      "w-5 h-5 md:w-6 md:h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
-                      answers[currentQ.id] === opt.originalIdx 
-                        ? "border-blue-600 bg-blue-600" 
-                        : "border-gray-300 group-hover:border-blue-400"
-                    )}>
-                      {answers[currentQ.id] === opt.originalIdx && (
-                        <div className="w-2 md:w-2.5 h-2 md:h-2.5 rounded-full bg-white" />
-                      )}
-                    </div>
-                    <div className="flex-grow flex gap-2">
-                      <span className="font-bold shrink-0 text-base md:text-lg">{String.fromCharCode(65 + i)}.</span>
-                      <div dangerouslySetInnerHTML={{ __html: opt.text }} className="flex-grow overflow-hidden" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {currentQ.type === QuestionType.TRUE_FALSE && (
-              <div className="space-y-3 md:space-y-4">
-                {currentQ.shuffledSubQuestions.map((sub: any, sIdx: number) => (
-                  <div key={sIdx} className="flex flex-col md:flex-row md:items-center justify-between p-4 md:p-5 bg-gray-50 rounded-2xl gap-3 md:gap-4 border border-gray-100">
-                    <div className="text-gray-700 font-medium text-base md:text-lg flex gap-2">
-                      <span className="shrink-0">{String.fromCharCode(97 + sIdx)}.</span>
-                      <div dangerouslySetInnerHTML={{ __html: sub.text }} className="flex-grow" />
-                    </div>
-                    <div className="flex gap-2 md:gap-3 w-full md:w-auto">
+              <div className="flex-grow mt-2">
+                {currentQ.type === QuestionType.MULTIPLE_CHOICE && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                    {currentQ.shuffledOptions.map((opt: any, i: number) => (
                       <button
-                        onClick={() => setAnswers(prev => ({ ...prev, [`${currentQ.id}-${sub.originalIdx}`]: true }))}
+                        key={i}
+                        onClick={() => setAnswers(prev => ({ ...prev, [currentQ.id]: opt.originalIdx }))}
                         className={cn(
-                          "flex-1 md:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-bold border-2 transition-all active:scale-95 group text-sm md:text-base",
-                          answers[`${currentQ.id}-${sub.originalIdx}`] === true 
-                            ? "bg-green-600 text-white border-green-600 shadow-lg" 
-                            : "bg-white border-gray-200 hover:border-green-400 text-gray-600"
+                          "flex items-center gap-3 text-left p-3 md:p-4 rounded-2xl border-2 transition-all active:scale-[0.98] group relative",
+                          answers[currentQ.id] === opt.originalIdx 
+                            ? "border-blue-500 bg-blue-50/50 text-blue-900 shadow-sm" 
+                            : "border-gray-50 bg-white hover:border-blue-200 hover:bg-slate-50 shadow-sm"
                         )}
                       >
                         <div className={cn(
-                          "w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center transition-all",
-                          answers[`${currentQ.id}-${sub.originalIdx}`] === true 
-                            ? "border-white bg-white" 
-                            : "border-gray-300 group-hover:border-green-400"
+                          "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
+                          answers[currentQ.id] === opt.originalIdx 
+                            ? "border-[#1E40AF] bg-white shadow-sm" 
+                            : "border-gray-200 group-hover:border-blue-400 bg-white"
                         )}>
-                          {answers[`${currentQ.id}-${sub.originalIdx}`] === true && (
-                            <div className="w-1.5 md:w-2 h-1.5 md:h-2 rounded-full bg-green-600" />
+                          {answers[currentQ.id] === opt.originalIdx && (
+                            <div className="w-3 h-3 rounded-full bg-[#1E40AF] animate-in zoom-in duration-200" />
                           )}
                         </div>
-                        Đúng
-                      </button>
-                      <button
-                        onClick={() => setAnswers(prev => ({ ...prev, [`${currentQ.id}-${sub.originalIdx}`]: false }))}
-                        className={cn(
-                          "flex-1 md:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-bold border-2 transition-all active:scale-95 group text-sm md:text-base",
-                          answers[`${currentQ.id}-${sub.originalIdx}`] === false 
-                            ? "bg-red-600 text-white border-red-600 shadow-lg" 
-                            : "bg-white border-gray-200 hover:border-red-400 text-gray-600"
-                        )}
-                      >
-                        <div className={cn(
-                          "w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center transition-all",
-                          answers[`${currentQ.id}-${sub.originalIdx}`] === false 
-                            ? "border-white bg-white" 
-                            : "border-gray-300 group-hover:border-red-400"
-                        )}>
-                          {answers[`${currentQ.id}-${sub.originalIdx}`] === false && (
-                            <div className="w-1.5 md:w-2 h-1.5 md:h-2 rounded-full bg-red-600" />
-                          )}
+                        <div className="flex-grow flex items-center gap-2">
+                          <span className="font-bold text-slate-400 text-[14px] shrink-0 uppercase tracking-tighter">
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <RichTextRenderer html={opt.text} className="text-[14px] font-bold text-slate-800" />
                         </div>
-                        Sai
                       </button>
+                    ))}
+                  </div>
+                )}
+
+                {currentQ.type === QuestionType.TRUE_FALSE && (
+                  <div className="space-y-2">
+                    {currentQ.shuffledSubQuestions.map((sub: any, sIdx: number) => (
+                      <div key={sIdx} className="flex flex-col md:flex-row md:items-center justify-between p-4 md:p-5 bg-white rounded-3xl gap-4 border border-gray-100 shadow-sm hover:border-blue-100 transition-colors">
+                        <div className="text-gray-900 font-bold text-[14px] flex gap-3">
+                          <span className="shrink-0 font-black text-slate-400">{String.fromCharCode(97 + sIdx)}.</span>
+                          <RichTextRenderer html={sub.text} className="flex-grow" />
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                          <button
+                            onClick={() => setAnswers(prev => ({ ...prev, [`${currentQ.id}-${sub.originalIdx}`]: true }))}
+                            className={cn(
+                              "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-xl font-black border-2 transition-all active:scale-95 group text-[14px] shadow-sm",
+                              answers[`${currentQ.id}-${sub.originalIdx}`] === true 
+                                ? "bg-green-600 text-white border-green-600 shadow-green-200" 
+                                : "bg-white border-gray-100 hover:border-green-400 text-gray-500"
+                            )}
+                          >
+                            Đúng
+                          </button>
+                          <button
+                            onClick={() => setAnswers(prev => ({ ...prev, [`${currentQ.id}-${sub.originalIdx}`]: false }))}
+                            className={cn(
+                              "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-xl font-black border-2 transition-all active:scale-95 group text-[14px] shadow-sm",
+                              answers[`${currentQ.id}-${sub.originalIdx}`] === false 
+                                ? "bg-red-600 text-white border-red-600 shadow-red-200" 
+                                : "bg-white border-gray-100 hover:border-red-400 text-gray-500"
+                            )}
+                          >
+                            Sai
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {currentQ.type === QuestionType.SHORT_ANSWER && (
+                  <div className="mt-8 max-w-2xl mx-auto">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Nhập câu trả lời của bạn tại đây..."
+                        className="w-full p-6 md:p-8 border-[3px] border-gray-100 rounded-[2rem] focus:border-blue-500 focus:ring-8 focus:ring-blue-100 outline-none transition-all text-[15px] font-bold bg-white shadow-inner text-center"
+                        value={answers[currentQ.id] || ""}
+                        onChange={(e) => setAnswers(prev => ({ ...prev, [currentQ.id]: e.target.value }))}
+                      />
+                      <div className="absolute -top-3 left-8 bg-blue-600 text-white px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-md">
+                        Đáp án từ bạn
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 mt-6 p-4 bg-orange-50 rounded-xl text-orange-700">
+                      <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                      <p className="text-xs md:text-sm font-medium italic">Vui lòng nhập kết quả chính xác, ví dụ: 12.5 hoặc Chu vi hình tròn.</p>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
-            )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </main>
 
-            {currentQ.type === QuestionType.SHORT_ANSWER && (
-              <div className="mt-4">
-                <input
-                  type="text"
-                  placeholder="Nhập câu trả lời của bạn..."
-                  className="w-full p-4 md:p-5 border-2 border-gray-100 rounded-2xl focus:border-blue-500 focus:ring-4 focus:ring-blue-50 outline-none transition-all text-lg md:text-xl"
-                  value={answers[currentQ.id] || ""}
-                  onChange={(e) => setAnswers(prev => ({ ...prev, [currentQ.id]: e.target.value }))}
-                />
-                <p className="text-xs md:text-sm text-gray-400 mt-4 italic">* Lưu ý: Nhập chính xác kết quả, không phân biệt hoa thường.</p>
-              </div>
-            )}
+      {/* Footer Controls: Locked to bottom */}
+      <footer className="flex-shrink-0 bg-white border-t border-gray-200 p-4 md:p-6 flex justify-between items-center shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)] z-20">
+        <div className="flex gap-3 md:gap-4 w-full md:max-w-4xl mx-auto">
+          <button
+            disabled={currentQuestionIdx === 0}
+            onClick={() => setCurrentQuestionIdx(prev => prev - 1)}
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 md:px-10 py-3 md:py-4 rounded-2xl font-black text-gray-500 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:pointer-events-none transition-all text-[14px] active:scale-95"
+          >
+            <ChevronLeft size={20} />
+            <span className="sm:inline">Câu trước</span>
+          </button>
+          
+          <div className="flex flex-grow items-center justify-center text-gray-400 font-bold text-[14px]">
+            Tiến độ: {Math.round(((Object.keys(answers).length) / sessionQuestions.length) * 100)}%
           </div>
 
-          <div className="flex justify-between mt-8 md:mt-12 pt-6 md:pt-8 border-t border-gray-100 gap-2">
+          {currentQuestionIdx < sessionQuestions.length - 1 ? (
             <button
-              disabled={currentQuestionIdx === 0}
-              onClick={() => setCurrentQuestionIdx(prev => prev - 1)}
-              className="flex items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-all text-sm md:text-base"
+              onClick={() => setCurrentQuestionIdx(prev => prev + 1)}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 text-white px-6 md:px-12 py-3 md:py-4 rounded-2xl font-black hover:bg-blue-700 shadow-lg active:scale-95 transition-all text-[14px] lg:min-w-[200px]"
             >
-              Câu trước
+              <span>Câu tiếp theo</span>
+              <ChevronRight size={20} />
             </button>
-            
-            {currentQuestionIdx < sessionQuestions.length - 1 ? (
-              <button
-                onClick={() => setCurrentQuestionIdx(prev => prev + 1)}
-                className="flex items-center justify-center gap-1 md:gap-2 bg-blue-600 text-white px-4 md:px-8 py-2.5 md:py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg active:scale-95 transition-all text-sm md:text-base"
-              >
-                Câu tiếp theo
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowSubmitConfirm(true)}
-                className="bg-green-600 text-white px-4 md:px-8 py-2.5 md:py-3 rounded-xl font-bold hover:bg-green-700 shadow-lg active:scale-95 transition-all text-sm md:text-base"
-              >
-                Nộp bài
-              </button>
-            )}
-          </div>
-        </motion.div>
-      </AnimatePresence>
+          ) : (
+            <button
+              onClick={() => setShowSubmitConfirm(true)}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-600 text-white px-6 md:px-12 py-3 md:py-4 rounded-2xl font-black hover:bg-green-700 shadow-xl active:scale-95 transition-all text-[14px] lg:min-w-[200px] animate-pulse"
+            >
+              Nộp bài
+            </button>
+          )}
+        </div>
+      </footer>
     </div>
   );
 };
@@ -2800,6 +2942,27 @@ export default function App() {
 
   const lastEditedIdRef = useRef<string | null>(null);
 
+  // Manual save function for questions
+  const saveAllQuestions = async () => {
+    if (!isAdmin) return;
+    setIsSyncing(true);
+    try {
+      const batch = writeBatch(db);
+      questions.forEach(q => {
+        batch.set(doc(db, "questions", q.id), q);
+      });
+      await batch.commit();
+      setHasUnsavedQuestions(false);
+      setImportStatus({ message: "Đã lưu tất cả câu hỏi thành công!", type: 'success' });
+      setTimeout(() => setImportStatus(null), 3000);
+    } catch (err) {
+      console.error("Manual sync failed:", err);
+      setImportStatus({ message: "Lỗi khi lưu câu hỏi!", type: 'error' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Debounced Question Auto-save
   useEffect(() => {
     // If an editor was just closed, sync the LAST edited question immediately if it had changes
@@ -2820,7 +2983,7 @@ export default function App() {
     }
 
     // Normal debounced auto-save while editing
-    if (editingQuestionId && isAdmin && questions.some(q => q.id === editingQuestionId)) {
+    if (editingQuestionId && isAdmin && questions.some(q => q.id === editingQuestionId) && hasUnsavedQuestions) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       
       debounceTimerRef.current = setTimeout(() => {
@@ -2837,7 +3000,7 @@ export default function App() {
               setIsSyncing(false);
             });
         }
-      }, 1500); // 1.5 second debounce
+      }, 2000); // 2 second debounce
     }
 
     lastEditedIdRef.current = editingQuestionId;
@@ -3071,15 +3234,10 @@ export default function App() {
       );
 
       if (existingScore) {
-        if (examType === "Kiểm tra thường xuyên") {
-          setLoginError("Bạn đã làm bài thi này rồi! Vui lòng liên hệ giáo viên để xoá điểm nếu muốn thi lại.");
+        // Chỉ cho phép thi lại nếu mật khẩu đã được Quản trị viên reset (hasChangedPassword là false)
+        if (student.hasChangedPassword) {
+          setLoginError("Bạn đã hoàn thành bài thi này rồi nên bạn không được phép thi lần nữa. Bạn hãy liên hệ thầy Trần Văn Nam để biết thêm chi tiết");
           return;
-        } else {
-          // For other exams, check if password was reset (hasChangedPassword is false)
-          if (student.hasChangedPassword) {
-            setLoginError("Bạn đã làm bài thi này rồi! Vui lòng liên hệ giáo viên để reset mật khẩu nếu muốn thi lại.");
-            return;
-          }
         }
       }
 
@@ -3193,7 +3351,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans text-gray-900">
       {view !== "exam" && <Header />}
       
-      <main className="flex-grow">
+      <main className="flex-grow flex flex-col">
         {view === "home" && (
           <HomeView 
             selectedGrade={selectedGrade}
@@ -3289,11 +3447,12 @@ export default function App() {
             setIsSyncing={setIsSyncing}
             editingQuestionId={editingQuestionId}
             setEditingQuestionId={setEditingQuestionId}
+            saveAllQuestions={saveAllQuestions}
           />
         )}
       </main>
 
-      <Footer />
+      {view !== "exam" && <Footer />}
     </div>
   );
 }

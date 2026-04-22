@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 /* Rich Text Content Styles */
 .q-content-html img, .ql-editor img {

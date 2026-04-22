@@ -1,5 +1,6 @@
 {
-  "name": "Website Thi Trực Tuyến THCS Tiến Hưng",
+  "name": "Website Thi Trực Tuyến THCS Tiến Hưng, bản tuyệt vời của Nam",
   "description": "Hệ thống thi trực tuyến dành cho học sinh trường THCS Tiến Hưng, Đồng Nai.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": []
 }
